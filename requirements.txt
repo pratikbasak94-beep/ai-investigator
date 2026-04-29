@@ -1,6 +1,6 @@
 pyTelegramBotAPI
 phidata
-google-genai
+google-genai,google-generativeai
 groq
 tavily-python
 exa-py
