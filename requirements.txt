@@ -1,8 +1,9 @@
-pyTelegramBotAPI
+PyTelegramBotAPI
 phidata
 google-genai
 google-generativeai
 groq
+openai
 tavily-python
 exa-py
 duckduckgo-search
