@@ -1,5 +1,7 @@
 import os
 import telebot
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from phi.agent import Agent
 from phi.model.google import Gemini
@@ -8,6 +10,32 @@ from phi.tools.tavily import TavilyTools
 from phi.tools.exa import ExaTools
 from phi.tools.duckduckgo import DuckDuckGo
 from phi.tools.jina_tools import JinaReaderTools
+
+# ==========================================
+# 1. DUMMY WEB SERVER (FOR RENDER FREE TIER)
+# ==========================================
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running on Render!")
+
+def run_dummy_server():
+    # Render assigns a port automatically. If running locally, defaults to 10000.
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), DummyHandler)
+    server.serve_forever()
+
+def keep_alive():
+    # Start the web server in a separate background thread
+    t = threading.Thread(target=run_dummy_server)
+    t.daemon = True
+    t.start()
+
+# ==========================================
+# 2. MAIN TELEGRAM BOT LOGIC
+# ==========================================
 
 # Load keys
 load_dotenv()
@@ -56,5 +84,13 @@ def handle_message(message):
 
     bot.send_message(message.chat.id, "🛑 All AI systems are busy. Try again in a moment.")
 
+# ==========================================
+# 3. STARTUP SEQUENCE
+# ==========================================
+
+# Start the dummy web server so Render doesn't crash
+keep_alive()
+
 print("🌍 GLOBAL EXPERT SYSTEM IS LIVE (2026 EDITION)!")
+# Start the bot polling
 bot.infinity_polling()
