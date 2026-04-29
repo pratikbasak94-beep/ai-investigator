@@ -37,9 +37,14 @@ def keep_alive():
 # ==========================================
 load_dotenv()
 bot = telebot.TeleBot(os.getenv("TELEGRAM_BOT_TOKEN"))
-
-# Using the standard Azure-style URL which GitHub Models requires
 GITHUB_BASE_URL = "https://models.inference.ai.azure.com"
+
+GLOBAL_EXPERT_PROMPT = [
+    "1. PERSONA: You are a Tier-1 Investment Analyst.",
+    "2. TASK: Synthesize provided raw data into a professional report.",
+    "3. FORMAT: Use [Executive Summary], [Technical Deep-Dive], [Strategic Forecast].",
+    "4. LANGUAGE: Professional, concise, and data-driven."
+]
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -55,28 +60,41 @@ def handle_message(message):
         bot.edit_message_text("🤖 Orchestrator: Routing to expert...", message.chat.id, processing_msg.message_id)
         router = Agent(
             model=OpenAIChat(id="gpt-4o-mini", api_key=os.getenv("GITHUB_TOKEN"), base_url=GITHUB_BASE_URL),
-            instructions=["Pick one ID: DeepSeek-R1, Cohere-command-r-plus, o3-mini, gpt-4o. Output ONLY the ID."]
+            instructions=["Pick one: DeepSeek-R1, Cohere-command-r-plus, o3-mini, Meta-Llama-3.1-405B-Instruct. Output ONLY the ID."]
         )
         chosen_id = router.run(super_prompt).content.strip()
-        
-        # Valid ID check
-        valid = ["DeepSeek-R1", "Cohere-command-r-plus", "o3-mini", "gpt-4o"]
-        if chosen_id not in valid: chosen_id = "gpt-4o"
+        if chosen_id not in ["DeepSeek-R1", "Cohere-command-r-plus", "o3-mini", "Meta-Llama-3.1-405B-Instruct"]: chosen_id = "o3-mini"
 
-        # STEP 1: SCRAPER (Gemini)
-        bot.edit_message_text(f"🕵️‍♂️ Gemini: Scraping data for {chosen_id}...", message.chat.id, processing_msg.message_id)
-        scraper = Agent(
-            model=Gemini(id="gemini-2.5-flash-lite"),
-            tools=[TavilyTools(), ExaTools(), JinaReaderTools()],
-            instructions=["Dump raw data and facts based on the prompt."]
-        )
-        scraped_data = scraper.run(super_prompt).content
+        # STEP 1: SELF-HEALING SCRAPER
+        bot.edit_message_text(f"🕵️‍♂️ Scraper: Gathering data for {chosen_id}...", message.chat.id, processing_msg.message_id)
+        
+        scraped_data = None
+        try:
+            # Primary: Gemini
+            scraper = Agent(
+                model=Gemini(id="gemini-2.5-flash-lite"),
+                tools=[TavilyTools(), JinaReaderTools()],
+                instructions=["Extract raw facts and financial data."]
+            )
+            scraped_data = scraper.run(super_prompt).content
+        except Exception as e:
+            if "429" in str(e) or "ResourceExhausted" in str(e):
+                bot.edit_message_text("🔄 Gemini exhausted. Switching to Groq Scraper...", message.chat.id, processing_msg.message_id)
+                # Fallback: Groq
+                scraper = Agent(
+                    model=Groq(id="llama-3.3-70b-versatile"),
+                    tools=[ExaTools(), DuckDuckGo()],
+                    instructions=["Extract raw facts and financial data."]
+                )
+                scraped_data = scraper.run(super_prompt).content
+            else:
+                raise e
 
         # STEP 2: WRITER (GitHub)
         bot.edit_message_text(f"📝 {chosen_id}: Writing report...", message.chat.id, processing_msg.message_id)
         writer = Agent(
             model=OpenAIChat(id=chosen_id, api_key=os.getenv("GITHUB_TOKEN"), base_url=GITHUB_BASE_URL),
-            instructions=["Use [Executive Summary] and [Strategic Forecast]."]
+            instructions=GLOBAL_EXPERT_PROMPT
         )
         final_answer = writer.run(f"Context: {scraped_data}\n\nTask: {super_prompt}").content
 
@@ -84,13 +102,12 @@ def handle_message(message):
         bot.send_message(message.chat.id, final_answer, parse_mode="Markdown")
 
     except Exception as e:
-        # THE DEBUG FIX: This will tell us the exact error in Telegram
-        error_type = type(e).__name__
-        bot.edit_message_text(f"🛑 Error: {error_type}\nDetail: {str(e)[:100]}", message.chat.id, processing_msg.message_id)
+        bot.edit_message_text(f"🛑 Error: {type(e).__name__}\nDetail: {str(e)[:100]}", message.chat.id, processing_msg.message_id)
 
 # ==========================================
 # 3. START
 # ==========================================
 keep_alive()
-print("🌍 BOT STARTED")
+bot.remove_webhook()
+print("🌍 ORCHESTRATOR IS ONLINE!")
 bot.infinity_polling()
