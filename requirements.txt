@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+phidata
+google-genai
+groq
+tavily-python
+exa-py
+duckduckgo-search
+jina
+python-dotenv
